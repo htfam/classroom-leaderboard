@@ -61,11 +61,16 @@ def fetch_leaderboard():
 
 def calculate_f1_score(submission_df, solution_df):
     """Calculates F1 Score after merging submission and solution files."""
-    merged_df = pd.merge(submission_df, solution_df, on='ID', how='left')
-    if merged_df['Target_y'].isnull().any():
-        raise ValueError("Submission file is missing some IDs present in the solution.")
+    # Rename columns for a clean merge, avoiding conflicts
+    submission_renamed = submission_df.rename(columns={'numclaims': 'submission_target'})
+    solution_renamed = solution_df.rename(columns={'numclaims': 'solution_target'})
+    
+    merged_df = pd.merge(submission_renamed, solution_renamed, on='pol_number', how='left')
+    
+    if merged_df['solution_target'].isnull().any():
+        raise ValueError("Submission file is missing some policy numbers ('pol_number') present in the solution.")
     # Calculate F1 Score (using 'weighted' for multiclass/imbalanced datasets)
-    score = f1_score(merged_df['Target_y'], merged_df['Target_x'], average='weighted')
+    score = f1_score(merged_df['solution_target'], merged_df['submission_target'], average='weighted')
     return score
 
 # --- Load Solution File from Secrets ---
@@ -86,7 +91,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Upload your submission CSV file",
         type=["csv"],
-        help="The file must have two columns: 'ID' and 'Target'."
+        help="The file must have two columns: 'pol_number' and 'numclaims'."
     )
     submit_button = st.button("Submit Predictions")
     st.markdown("---")
@@ -103,11 +108,8 @@ if submit_button:
     else:
         try:
             submission_df = pd.read_csv(uploaded_file)
-            if not {'ID', 'Target'}.issubset(submission_df.columns):
-                raise ValueError("Submission file must contain 'ID' and 'Target' columns.")
-
-            submission_df.columns = ['ID', 'Target_x']
-            solution_df.columns = ['ID', 'Target_y']
+            if not {'pol_number', 'numclaims'}.issubset(submission_df.columns):
+                raise ValueError("Submission file must contain 'pol_number' and 'numclaims' columns.")
 
             with st.spinner("Scoring your submission..."):
                 score = calculate_f1_score(submission_df, solution_df)
