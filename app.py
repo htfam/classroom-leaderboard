@@ -5,8 +5,7 @@ from sklearn.metrics import mean_squared_error
 from datetime import datetime
 import pytz
 import io
-# We are importing the actual library to catch its specific errors
-from gspread.exceptions import SpreadsheetNotFound, WorksheetNotFound
+import gspread  # Import the gspread library directly
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -22,38 +21,41 @@ Welcome to the class data competition! Submit your predictions to see how you ra
 The evaluation metric is **Root Mean Squared Error (RMSE)**. Lower is better!
 """)
 
-# --- NEW: Enhanced Google Sheets Connection with Detailed Error Handling ---
+# --- FINAL: Direct Gspread Connection (Bypassing st.connection) ---
 try:
-    conn = st.connection("gsheets", type="legacy_gsheets")
+    # Use st.secrets to get credentials for gspread
+    creds = st.secrets["connections"]["gsheets"]
+    client = gspread.service_account_from_dict(creds)
+
+    # Open the spreadsheet using the URL from secrets
+    spreadsheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+    spreadsheet = client.open_by_url(spreadsheet_url)
+    worksheet = spreadsheet.worksheet("leaderboard")
 except Exception as e:
-    # This will catch errors in the initial credential setup
-    st.error("Failed to create the initial connection. This usually means a problem with your secrets.toml format.")
+    st.error("Failed to connect to Google Sheets. Please double-check all your secrets and sharing settings.")
     st.error(f"**Detailed Error:** {e}")
     st.stop()
 
 
-# --- Helper Functions ---
+# --- Helper Functions (Updated to use the new worksheet object) ---
 @st.cache_data(ttl=60)
 def fetch_leaderboard():
-    """Fetches and sorts the leaderboard from Google Sheets with detailed error handling."""
+    """Fetches and sorts the leaderboard from the Google Sheet."""
     try:
-        df = conn.read(worksheet="leaderboard", usecols=list(range(3)), header=0)
+        records = worksheet.get_all_records()
+        df = pd.DataFrame(records)
+        
+        # If the sheet is empty, return a blank dataframe
+        if df.empty:
+            return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
+
         df.dropna(subset=['Score'], inplace=True)
         df['Score'] = pd.to_numeric(df['Score'])
         df_sorted = df.sort_values(by="Score", ascending=True).reset_index(drop=True)
         df_sorted['Rank'] = df_sorted.index + 1
         return df_sorted[['Rank', 'Name', 'Score', 'Timestamp']]
-    # --- NEW: Catching specific, common errors from the gspread library ---
-    except SpreadsheetNotFound:
-        st.error("Connection successful, but the spreadsheet was not found. Please double-check the `spreadsheet` URL in your secrets.")
-        return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
-    except WorksheetNotFound:
-        st.error("Spreadsheet was found, but the worksheet/tab named 'leaderboard' was not. Please ensure the tab name is correct (all lowercase).")
-        return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
     except Exception as e:
-        # This will catch any other errors during the read process
-        st.error("An error occurred while trying to read data from the sheet.")
-        st.error(f"**Detailed Error:** {e}")
+        st.error(f"An error occurred while reading the leaderboard: {e}")
         return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
 
 def calculate_rmse(submission_df, solution_df):
@@ -85,8 +87,12 @@ with st.sidebar:
         help="The file must have two columns: 'ID' and 'Target'."
     )
     submit_button = st.button("Submit Predictions")
+    st.markdown("---")
+    # This resource is no longer needed as there is no sample file in this version
+    # You can add it back if you add a sample_submission.csv to your repo
 
-# --- Submission Logic ---
+
+# --- Submission Logic (Updated to use the new worksheet object) ---
 if submit_button:
     if not team_name:
         st.sidebar.warning("Please enter your name or team name.")
@@ -107,24 +113,26 @@ if submit_button:
             timestamp = datetime.now(pytz.timezone("UTC")).strftime("%Y-%m-%d %H:%M:%S UTC")
             new_entry = pd.DataFrame([[team_name, score, timestamp]], columns=["Name", "Score", "Timestamp"])
             
-            # Use the underlying gspread worksheet object to append
-            worksheet = conn.get_worksheet(0) # 0 is the first sheet
+            # Append the new row using the worksheet object we created at the start
             worksheet.append_rows(new_entry.values.tolist(), value_input_option='USER_ENTERED')
 
             st.sidebar.success(f"🎉 Submission successful!\n\nYour RMSE score: **{score:.5f}**")
-            st.cache_data.clear()
+            st.cache_data.clear() # Clear cache to show new result immediately
         except Exception as e:
             st.sidebar.error(f"An error occurred: {e}")
 
 # --- Display Leaderboard ---
 st.header("📊 Live Leaderboard")
 leaderboard_df = fetch_leaderboard()
+
 if not leaderboard_df.empty:
     st.dataframe(
         leaderboard_df,
         use_container_width=True,
         hide_index=True
     )
+else:
+    st.info("The leaderboard is currently empty. Be the first to make a submission!")
 
 if st.button('Refresh Leaderboard'):
     st.cache_data.clear()
