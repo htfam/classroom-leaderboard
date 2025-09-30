@@ -114,7 +114,7 @@ if submit_button:
             with st.spinner("Scoring your submission..."):
                 score = calculate_f1_score(submission_df, solution_df)
 
-            timestamp = datetime.now(pytz.timezone("UTC")).strftime("%Y-%m-%d %H:%M:%S UTC")
+            timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
             new_entry = pd.DataFrame([[team_name, score, timestamp]], columns=["Name", "Score", "Timestamp"])
             
             # Append the new row using the worksheet object we created at the start
