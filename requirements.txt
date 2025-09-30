@@ -1,0 +1,6 @@
+streamlit
+pandas
+scikit-learn
+pytz
+gspread
+google-auth-oauthlib
