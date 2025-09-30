@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import f1_score  # Changed from mean_squared_error
 from datetime import datetime
 import pytz
 import io
@@ -18,7 +18,7 @@ st.set_page_config(
 st.title("🏆 Data Competition Leaderboard")
 st.markdown("""
 Welcome to the class data competition! Submit your predictions to see how you rank against your peers.
-The evaluation metric is **Root Mean Squared Error (RMSE)**. Lower is better!
+The evaluation metric is **F1 Score**. Higher is better!
 """)
 
 # --- FINAL: Direct Gspread Connection (Bypassing st.connection) ---
@@ -51,20 +51,22 @@ def fetch_leaderboard():
 
         df.dropna(subset=['Score'], inplace=True)
         df['Score'] = pd.to_numeric(df['Score'])
-        df_sorted = df.sort_values(by="Score", ascending=True).reset_index(drop=True)
+        # Sort by score (descending, since higher F1 score is better)
+        df_sorted = df.sort_values(by="Score", ascending=False).reset_index(drop=True)
         df_sorted['Rank'] = df_sorted.index + 1
         return df_sorted[['Rank', 'Name', 'Score', 'Timestamp']]
     except Exception as e:
         st.error(f"An error occurred while reading the leaderboard: {e}")
         return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
 
-def calculate_rmse(submission_df, solution_df):
-    """Calculates RMSE after merging submission and solution files."""
+def calculate_f1_score(submission_df, solution_df):
+    """Calculates F1 Score after merging submission and solution files."""
     merged_df = pd.merge(submission_df, solution_df, on='ID', how='left')
     if merged_df['Target_y'].isnull().any():
         raise ValueError("Submission file is missing some IDs present in the solution.")
-    rmse = np.sqrt(mean_squared_error(merged_df['Target_y'], merged_df['Target_x']))
-    return rmse
+    # Calculate F1 Score (using 'weighted' for multiclass/imbalanced datasets)
+    score = f1_score(merged_df['Target_y'], merged_df['Target_x'], average='weighted')
+    return score
 
 # --- Load Solution File from Secrets ---
 try:
@@ -108,7 +110,7 @@ if submit_button:
             solution_df.columns = ['ID', 'Target_y']
 
             with st.spinner("Scoring your submission..."):
-                score = calculate_rmse(submission_df, solution_df)
+                score = calculate_f1_score(submission_df, solution_df)
 
             timestamp = datetime.now(pytz.timezone("UTC")).strftime("%Y-%m-%d %H:%M:%S UTC")
             new_entry = pd.DataFrame([[team_name, score, timestamp]], columns=["Name", "Score", "Timestamp"])
@@ -116,7 +118,7 @@ if submit_button:
             # Append the new row using the worksheet object we created at the start
             worksheet.append_rows(new_entry.values.tolist(), value_input_option='USER_ENTERED')
 
-            st.sidebar.success(f"🎉 Submission successful!\n\nYour RMSE score: **{score:.5f}**")
+            st.sidebar.success(f"🎉 Submission successful!\n\nYour F1 Score: **{score:.5f}**")
             st.cache_data.clear() # Clear cache to show new result immediately
         except Exception as e:
             st.sidebar.error(f"An error occurred: {e}")
