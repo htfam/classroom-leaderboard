@@ -18,7 +18,7 @@ st.set_page_config(
 st.title("🏆 Data Competition Leaderboard")
 st.markdown("""
 Welcome to the class data competition! Submit your predictions to see how you rank against your peers.
-The evaluation metric is **F1 Score**. Higher is better!
+The evaluation metric is **F1 Score**. Higher is better! The competition ends Monday, October 13th at the start of class.
 """)
 
 # --- FINAL: Direct Gspread Connection (Bypassing st.connection) ---
