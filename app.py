@@ -152,19 +152,40 @@ if submit_button:
 
 # --- Display Leaderboard ---
 st.header("📊 Live Leaderboard")
-leaderboard_df = fetch_leaderboard()
 
-if not leaderboard_df.empty:
-    st.dataframe(
-        leaderboard_df,
-        use_container_width=True,
-        hide_index=True
-    )
-else:
+# Fetch all submission data once
+all_submissions_df = fetch_leaderboard()
+
+if all_submissions_df.empty:
     st.info("The leaderboard is currently empty. Be the first to make a submission!")
+else:
+    # Create tabs to switch between views
+    tab1, tab2 = st.tabs(["All Submissions", "Best Score per Person"])
+
+    with tab1:
+        st.markdown("This view shows every single submission made.")
+        st.dataframe(
+            all_submissions_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    with tab2:
+        st.markdown("This view shows only the highest score for each unique participant.")
+        # Find the best score for each name
+        best_scores_df = all_submissions_df.loc[all_submissions_df.groupby('Name')['Score'].idxmax()]
+        # Re-sort and re-rank the filtered dataframe
+        best_scores_df = best_scores_df.sort_values(by="Score", ascending=False).reset_index(drop=True)
+        best_scores_df['Rank'] = best_scores_df.index + 1
+        
+        st.dataframe(
+            best_scores_df[['Rank', 'Name', 'Score', 'Timestamp']],
+            use_container_width=True,
+            hide_index=True
+        )
+
 
 if st.button('Refresh Leaderboard'):
     st.cache_data.clear()
     st.rerun()
-
 
