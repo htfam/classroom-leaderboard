@@ -20,9 +20,9 @@ st.markdown("""
 Welcome to the class data competition! Submit your predictions to see how you rank against your peers.
 The evaluation metric is **F1 Score**. Higher is better! The competition ends Monday, October 13th at the start of class.
 
-**Note**: There was an error in the evaluation where the system allowed you to submit missing predictions. To be valid, all rows in the sample submission file must be submitted, that is all 981 rows.
-I have reset the leaderboard as of 2025-10-02 18:46:36 CDT, but I have kept the historical records. I apologize for any inconvenience.
-""")
+<u>Note: There was an error in the evaluation where the system allowed you to submit missing predictions. To be valid, all rows in the sample submission file must be submitted, that is all 981 rows.
+I have reset the leaderboard as of 2025-10-02 18:46:36 CDT, but I have kept the historical records. I apologize for any inconvenience.</u>
+""", unsafe_allow_html=True)
 
 # --- FINAL: Direct Gspread Connection (Bypassing st.connection) ---
 try:
