@@ -60,15 +60,37 @@ def fetch_leaderboard():
         return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
 
 def calculate_f1_score(submission_df, solution_df):
-    """Calculates F1 Score after merging submission and solution files."""
+    """Calculates F1 Score after merging and validating submission and solution files."""
+    
+    # --- Rigorous Validation ---
+    # 1. Check for the exact same number of rows
+    if len(submission_df) != len(solution_df):
+        raise ValueError(f"Incorrect number of rows. Submission has {len(submission_df)} rows, but should have {len(solution_df)}.")
+
+    # 2. Check for the exact same set of policy numbers
+    solution_ids = set(solution_df['pol_number'])
+    submission_ids = set(submission_df['pol_number'])
+
+    if solution_ids != submission_ids:
+        missing_ids = solution_ids - submission_ids
+        extra_ids = submission_ids - solution_ids
+        
+        error_messages = []
+        if missing_ids:
+            error_messages.append(f"missing {len(missing_ids)} required pol_number(s)")
+        if extra_ids:
+            error_messages.append(f"contains {len(extra_ids)} unexpected pol_number(s)")
+            
+        raise ValueError(f"Submission file has incorrect policy numbers: {', '.join(error_messages)}.")
+
+    # --- Scoring ---
     # Rename columns for a clean merge, avoiding conflicts
     submission_renamed = submission_df.rename(columns={'numclaims': 'submission_target'})
     solution_renamed = solution_df.rename(columns={'numclaims': 'solution_target'})
     
-    merged_df = pd.merge(submission_renamed, solution_renamed, on='pol_number', how='left')
+    # Use an inner merge, which is safe now that we've validated the IDs
+    merged_df = pd.merge(submission_renamed, solution_renamed, on='pol_number', how='inner')
     
-    if merged_df['solution_target'].isnull().any():
-        raise ValueError("Submission file is missing some policy numbers ('pol_number') present in the solution.")
     # Calculate F1 Score (using 'weighted' for multiclass/imbalanced datasets)
     score = f1_score(merged_df['solution_target'], merged_df['submission_target'], average='weighted')
     return score
@@ -141,4 +163,5 @@ else:
 if st.button('Refresh Leaderboard'):
     st.cache_data.clear()
     st.rerun()
+
 
