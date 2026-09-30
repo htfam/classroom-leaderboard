@@ -5,7 +5,7 @@ from sklearn.metrics import f1_score
 from datetime import datetime
 import pytz
 import io
-import gspread  # Direct gspread connection as used in your previous deployment
+import gspread  # Direct gspread connection
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -49,29 +49,49 @@ except Exception as e:
 # --- Helper Functions ---
 @st.cache_data(ttl=60)
 def fetch_leaderboard():
-    """Fetches and sorts the leaderboard from the Google Sheet."""
+    """Fetches submission data and builds leaderboard dataframes."""
     try:
-        records = worksheet.get_all_records()
-        df = pd.DataFrame(records)
+        values = worksheet.get_all_values()
         
-        if df.empty:
+        # Return empty table if sheet has no data rows
+        if not values or len(values) <= 1:
             return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp', 'File Name'])
 
-        # Ensure expected columns exist (handles backward compatibility)
-        if 'File Name' not in df.columns:
-            df['File Name'] = 'N/A'
-        else:
-            df['File Name'] = df['File Name'].replace('', 'N/A').fillna('N/A')
+        # Read data rows (skipping header row 0)
+        data_rows = values[1:]
+        df = pd.DataFrame(data_rows)
 
+        # Ensure at least 4 columns exist (0: Name, 1: Score, 2: Timestamp, 3: File Name)
+        for col_idx in range(4):
+            if col_idx not in df.columns:
+                df[col_idx] = "N/A"
+
+        # Select first 4 columns and assign explicit header names
+        df = df.iloc[:, :4]
+        df.columns = ['Name', 'Score', 'Timestamp', 'File Name']
+
+        # Clean file names and missing strings
+        df['File Name'] = df['File Name'].replace('', 'N/A').fillna('N/A')
+
+        # Clean and convert numeric scores
+        df = df[df['Score'] != '']
+        df['Score'] = pd.to_numeric(df['Score'], errors='coerce')
         df.dropna(subset=['Score'], inplace=True)
-        df['Score'] = pd.to_numeric(df['Score'])
-        
-        # Sort by score descending (higher F1 score is better)
-        df_sorted = df.sort_values(by="Score", ascending=False).reset_index(drop=True)
-        df_sorted['Rank'] = df_sorted.index + 1
-        
-        # Display File Name at the far right
-        return df_sorted[['Rank', 'Name', 'Score', 'Timestamp', 'File Name']]
+
+        # Calculate Score Rank across all submissions
+        df_sorted_score = df.sort_values(by="Score", ascending=False).reset_index(drop=True)
+        df_sorted_score['Rank'] = df_sorted_score.index + 1
+
+        # Convert timestamp to datetime for reliable chronological sorting
+        df_sorted_score['dt'] = pd.to_datetime(
+            df_sorted_score['Timestamp'].str.rsplit(' ', n=1).str[0], 
+            errors='coerce'
+        )
+
+        # Sort all submissions by most recent timestamp first
+        df_most_recent = df_sorted_score.sort_values(by="dt", ascending=False).reset_index(drop=True)
+
+        return df_most_recent[['Rank', 'Name', 'Score', 'Timestamp', 'File Name']]
     except Exception as e:
         st.error(f"An error occurred while reading the leaderboard: {e}")
         return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp', 'File Name'])
@@ -209,7 +229,7 @@ if submit_button:
                     score = calculate_f1_score(submission_df, solution_df)
                     timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
-                    # Order: Name | Score | Timestamp | File Name
+                    # Record format: Name | Score | Timestamp | File Name
                     new_rows.append([team_name.strip(), score, timestamp, file.name])
                     submission_results.append((file.name, score, None))
                 except Exception as e:
@@ -243,7 +263,7 @@ else:
     tab1, tab2 = st.tabs(["All Submissions", "Best Score per Person"])
 
     with tab1:
-        st.markdown("This view shows every single submission made.")
+        st.markdown("This view shows every single submission made (most recent submission first).")
         st.dataframe(
             all_submissions_df[['Rank', 'Name', 'Score', 'Timestamp', 'File Name']],
             use_container_width=True,
