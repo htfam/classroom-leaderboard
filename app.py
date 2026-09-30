@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.metrics import f1_score  # Changed from mean_squared_error
+from sklearn.metrics import f1_score
 from datetime import datetime
 import pytz
 import io
-import gspread  # Import the gspread library directly
+import gspread  # Direct gspread connection as used in your previous deployment
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -18,13 +18,12 @@ st.set_page_config(
 st.title("🏆 Data Competition Leaderboard")
 st.markdown("""
 Welcome to the class data competition! Submit your predictions to see how you rank against your peers.
-The evaluation metric is **F1 Score**. Higher is better! The competition ends Monday, October 13th at the start of class.
+The evaluation metric is **F1 Score** (weighted for class imbalance). Higher is better!
 
-<u>Note: There was an error in the evaluation where the system allowed you to submit missing predictions. To be valid, all rows in the sample submission file must be submitted, that is all 981 rows.
-I have reset the leaderboard as of 2025-10-02 18:46:36 CDT, but I have kept the historical records. I apologize for any inconvenience.</u>
+<u>Note: All **15,696 rows** matching the sample submission file must be submitted. Missing or unmatched predictions will be flagged as invalid.</u>
 """, unsafe_allow_html=True)
 
-# --- FINAL: Direct Gspread Connection (Bypassing st.connection) ---
+# --- Direct Gspread Connection ---
 try:
     # Use st.secrets to get credentials for gspread
     creds = st.secrets["connections"]["gsheets"]
@@ -40,7 +39,7 @@ except Exception as e:
     st.stop()
 
 
-# --- Helper Functions (Updated to use the new worksheet object) ---
+# --- Helper Functions ---
 @st.cache_data(ttl=60)
 def fetch_leaderboard():
     """Fetches and sorts the leaderboard from the Google Sheet."""
@@ -48,13 +47,12 @@ def fetch_leaderboard():
         records = worksheet.get_all_records()
         df = pd.DataFrame(records)
         
-        # If the sheet is empty, return a blank dataframe
         if df.empty:
             return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
 
         df.dropna(subset=['Score'], inplace=True)
         df['Score'] = pd.to_numeric(df['Score'])
-        # Sort by score (descending, since higher F1 score is better)
+        # Sort by score descending (higher F1 score is better)
         df_sorted = df.sort_values(by="Score", ascending=False).reset_index(drop=True)
         df_sorted['Rank'] = df_sorted.index + 1
         return df_sorted[['Rank', 'Name', 'Score', 'Timestamp']]
@@ -62,17 +60,30 @@ def fetch_leaderboard():
         st.error(f"An error occurred while reading the leaderboard: {e}")
         return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
 
-def calculate_f1_score(submission_df, solution_df):
-    """Calculates F1 Score after merging and validating submission and solution files."""
-    
-    # --- Rigorous Validation ---
-    # 1. Check for the exact same number of rows
-    if len(submission_df) != len(solution_df):
-        raise ValueError(f"Incorrect number of rows. Submission has {len(submission_df)} rows, but should have {len(solution_df)}.")
 
-    # 2. Check for the exact same set of policy numbers
-    solution_ids = set(solution_df['pol_number'])
-    submission_ids = set(submission_df['pol_number'])
+def calculate_f1_score(submission_df, solution_df):
+    """Calculates F1 Score after validating and merging submission and solution files."""
+    
+    # 1. Flexible Column Identification
+    id_col = None
+    pred_col = None
+    for col in submission_df.columns:
+        col_lower = str(col).strip().lower()
+        if col_lower in ['unique_id', 'id']:
+            id_col = col
+        elif col_lower in ['prediction', 'label', 'target', 'pred']:
+            pred_col = col
+
+    if not id_col or not pred_col:
+        raise ValueError("Submission file must contain 'unique_id' and 'prediction' columns.")
+
+    # 2. Check for exact number of rows (15,696)
+    if len(submission_df) != len(solution_df):
+        raise ValueError(f"Incorrect number of rows. Submission has {len(submission_df)} rows, but must have {len(solution_df)} rows.")
+
+    # 3. Check for exact set of unique_ids
+    solution_ids = set(solution_df['unique_id'])
+    submission_ids = set(submission_df[id_col])
 
     if solution_ids != submission_ids:
         missing_ids = solution_ids - submission_ids
@@ -80,23 +91,44 @@ def calculate_f1_score(submission_df, solution_df):
         
         error_messages = []
         if missing_ids:
-            error_messages.append(f"missing {len(missing_ids)} required pol_number(s)")
+            error_messages.append(f"missing {len(missing_ids)} required unique_id(s)")
         if extra_ids:
-            error_messages.append(f"contains {len(extra_ids)} unexpected pol_number(s)")
+            error_messages.append(f"contains {len(extra_ids)} unexpected unique_id(s)")
             
-        raise ValueError(f"Submission file has incorrect policy numbers: {', '.join(error_messages)}.")
+        raise ValueError(f"Submission file has invalid IDs: {', '.join(error_messages)}.")
 
-    # --- Scoring ---
-    # Rename columns for a clean merge, avoiding conflicts
-    submission_renamed = submission_df.rename(columns={'numclaims': 'submission_target'})
-    solution_renamed = solution_df.rename(columns={'numclaims': 'solution_target'})
+    # 4. Clean & Normalize Predictions
+    sub_cleaned = submission_df[[id_col, pred_col]].copy()
+    sub_cleaned.columns = ['unique_id', 'raw_prediction']
     
-    # Use an inner merge, which is safe now that we've validated the IDs
-    merged_df = pd.merge(submission_renamed, solution_renamed, on='pol_number', how='inner')
-    
-    # Calculate F1 Score (using 'weighted' for multiclass/imbalanced datasets)
+    if sub_cleaned['raw_prediction'].isnull().any():
+        raise ValueError("Submission contains missing (NaN) prediction values.")
+
+    # Convert inputs ('good'/'bad', 0/1, string/numeric) into normalized labels
+    def normalize_labels(s):
+        s_str = s.astype(str).str.strip().str.lower()
+        mapping = {
+            'good': 'good', 'bad': 'bad',
+            '0': 'good', '1': 'bad',
+            '0.0': 'good', '1.0': 'bad',
+            'false': 'good', 'true': 'bad'
+        }
+        return s_str.map(mapping)
+
+    sub_cleaned['submission_target'] = normalize_labels(sub_cleaned['raw_prediction'])
+    if sub_cleaned['submission_target'].isnull().any():
+        raise ValueError("Invalid predictions found. Values must be 'good', 'bad', 0, or 1.")
+
+    sol_cleaned = solution_df[['unique_id', 'label']].copy()
+    sol_cleaned['solution_target'] = normalize_labels(sol_cleaned['label'])
+
+    # 5. Merge on unique_id
+    merged_df = pd.merge(sub_cleaned, sol_cleaned, on='unique_id', how='inner')
+
+    # 6. Calculate F1 Score (weighted average for class imbalance)
     score = f1_score(merged_df['solution_target'], merged_df['submission_target'], average='weighted')
-    return score
+    return float(score)
+
 
 # --- Load Solution File from Secrets ---
 try:
@@ -109,6 +141,7 @@ except Exception as e:
     st.error(f"Could not parse the solution data from secrets. Error: {e}")
     st.stop()
 
+
 # --- Sidebar for Submission ---
 with st.sidebar:
     st.header("📥 Make a Submission")
@@ -116,50 +149,58 @@ with st.sidebar:
     uploaded_file = st.file_uploader(
         "Upload your submission CSV file",
         type=["csv"],
-        help="The file must have two columns: 'pol_number' and 'numclaims'."
+        help="The file must have two columns: 'unique_id' and 'prediction' containing all 15,696 rows."
     )
     submit_button = st.button("Submit Predictions")
     st.markdown("---")
-    # This resource is no longer needed as there is no sample file in this version
-    # You can add it back if you add a sample_submission.csv to your repo
+    st.header("📚 Resources")
+    try:
+        with open("submission.csv", "rb") as f:
+            st.download_button(
+                label="Download Sample Submission",
+                data=f,
+                file_name="sample_submission.csv",
+                mime="text/csv"
+            )
+    except FileNotFoundError:
+        st.warning("`submission.csv` sample template not found in repository.")
 
 
-# --- Submission Logic (Updated to use the new worksheet object) ---
+# --- Submission Logic ---
 if submit_button:
-    if not team_name:
+    if not team_name.strip():
         st.sidebar.warning("Please enter your name or team name.")
     elif uploaded_file is None:
         st.sidebar.warning("Please upload your submission file.")
     else:
         try:
             submission_df = pd.read_csv(uploaded_file)
-            if not {'pol_number', 'numclaims'}.issubset(submission_df.columns):
-                raise ValueError("Submission file must contain 'pol_number' and 'numclaims' columns.")
 
             with st.spinner("Scoring your submission..."):
                 score = calculate_f1_score(submission_df, solution_df)
 
             timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
-            new_entry = pd.DataFrame([[team_name, score, timestamp]], columns=["Name", "Score", "Timestamp"])
+            new_entry = pd.DataFrame([[team_name.strip(), score, timestamp]], columns=["Name", "Score", "Timestamp"])
             
-            # Append the new row using the worksheet object we created at the start
+            # Append the new row to Google Sheets via gspread
             worksheet.append_rows(new_entry.values.tolist(), value_input_option='USER_ENTERED')
 
             st.sidebar.success(f"🎉 Submission successful!\n\nYour F1 Score: **{score:.5f}**")
-            st.cache_data.clear() # Clear cache to show new result immediately
+            st.cache_data.clear() # Clear cache to display update immediately
+        except ValueError as ve:
+            st.sidebar.error(f"Validation Error: {ve}")
         except Exception as e:
             st.sidebar.error(f"An error occurred: {e}")
+
 
 # --- Display Leaderboard ---
 st.header("📊 Live Leaderboard")
 
-# Fetch all submission data once
 all_submissions_df = fetch_leaderboard()
 
 if all_submissions_df.empty:
     st.info("The leaderboard is currently empty. Be the first to make a submission!")
 else:
-    # Create tabs to switch between views
     tab1, tab2 = st.tabs(["All Submissions", "Best Score per Person"])
 
     with tab1:
@@ -172,9 +213,7 @@ else:
 
     with tab2:
         st.markdown("This view shows only the highest score for each unique participant.")
-        # Find the best score for each name
         best_scores_df = all_submissions_df.loc[all_submissions_df.groupby('Name')['Score'].idxmax()]
-        # Re-sort and re-rank the filtered dataframe
         best_scores_df = best_scores_df.sort_values(by="Score", ascending=False).reset_index(drop=True)
         best_scores_df['Rank'] = best_scores_df.index + 1
         
@@ -184,8 +223,6 @@ else:
             hide_index=True
         )
 
-
 if st.button('Refresh Leaderboard'):
     st.cache_data.clear()
     st.rerun()
-
