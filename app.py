@@ -145,7 +145,7 @@ except Exception as e:
 # --- Sidebar for Submission ---
 with st.sidebar:
     st.header("📥 Make a Submission")
-    team_name = st.text_input("Enter your Name or Team Name", key="team_name")
+    team_name = st.text_input("Enter your Name", key="team_name")
     uploaded_file = st.file_uploader(
         "Upload your submission CSV file",
         type=["csv"],
@@ -169,7 +169,7 @@ with st.sidebar:
 # --- Submission Logic ---
 if submit_button:
     if not team_name.strip():
-        st.sidebar.warning("Please enter your name or team name.")
+        st.sidebar.warning("Please enter your name.")
     elif uploaded_file is None:
         st.sidebar.warning("Please upload your submission file.")
     else:
