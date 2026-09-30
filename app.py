@@ -163,7 +163,7 @@ with st.sidebar:
                 mime="text/csv"
             )
     except FileNotFoundError:
-        #st.warning("`submission.csv` sample template not found in repository.")
+        st.warning("`submission.csv` sample template not found in repository.")
 
 
 # --- Submission Logic ---
