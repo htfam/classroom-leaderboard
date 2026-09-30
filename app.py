@@ -23,6 +23,13 @@ The evaluation metric is **F1 Score**. Higher is better!
 <u>Note: You can upload one or multiple CSV files at once to test different models. All **15,696 rows** matching the sample submission file must be submitted. Missing or unmatched predictions will be flagged as invalid.</u>
 """, unsafe_allow_html=True)
 
+# --- Session State for File Uploader Reset ---
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = 0
+
+def clear_file_uploader():
+    st.session_state["uploader_key"] += 1
+
 # --- Direct Gspread Connection ---
 try:
     # Use st.secrets to get credentials for gspread
@@ -48,17 +55,24 @@ def fetch_leaderboard():
         df = pd.DataFrame(records)
         
         if df.empty:
-            return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
+            return pd.DataFrame(columns=['Rank', 'Name', 'File Name', 'Score', 'Timestamp'])
+
+        # Ensure expected columns exist (handles backward compatibility)
+        if 'File Name' not in df.columns:
+            df['File Name'] = 'N/A'
+        else:
+            df['File Name'] = df['File Name'].replace('', 'N/A').fillna('N/A')
 
         df.dropna(subset=['Score'], inplace=True)
         df['Score'] = pd.to_numeric(df['Score'])
+        
         # Sort by score descending (higher F1 score is better)
         df_sorted = df.sort_values(by="Score", ascending=False).reset_index(drop=True)
         df_sorted['Rank'] = df_sorted.index + 1
-        return df_sorted[['Rank', 'Name', 'Score', 'Timestamp']]
+        return df_sorted[['Rank', 'Name', 'File Name', 'Score', 'Timestamp']]
     except Exception as e:
         st.error(f"An error occurred while reading the leaderboard: {e}")
-        return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp'])
+        return pd.DataFrame(columns=['Rank', 'Name', 'File Name', 'Score', 'Timestamp'])
 
 
 def calculate_f1_score(submission_df, solution_df):
@@ -147,15 +161,21 @@ with st.sidebar:
     st.header("📥 Make Submissions")
     team_name = st.text_input("Enter your Name", key="team_name")
     
-    # Multiple files upload enabled
+    # File uploader with dynamic key for reset functionality
     uploaded_files = st.file_uploader(
         "Upload your submission CSV file(s)",
         type=["csv"],
         accept_multiple_files=True,
+        key=f"file_uploader_{st.session_state['uploader_key']}",
         help="The file(s) must have two columns: 'unique_id' and 'prediction' containing all 15,696 rows."
     )
     
-    submit_button = st.button("Submit Predictions")
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        submit_button = st.button("Submit Predictions", use_container_width=True)
+    with col2:
+        st.button("Clear Uploads", on_click=clear_file_uploader, use_container_width=True)
+
     st.markdown("---")
     st.header("📚 Resources")
     try:
@@ -187,7 +207,8 @@ if submit_button:
                     score = calculate_f1_score(submission_df, solution_df)
                     timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
-                    new_rows.append([team_name.strip(), score, timestamp])
+                    # Record Name, File Name, Score, Timestamp
+                    new_rows.append([team_name.strip(), file.name, score, timestamp])
                     submission_results.append((file.name, score, None))
                 except Exception as e:
                     submission_results.append((file.name, None, str(e)))
@@ -234,7 +255,7 @@ else:
         best_scores_df['Rank'] = best_scores_df.index + 1
         
         st.dataframe(
-            best_scores_df[['Rank', 'Name', 'Score', 'Timestamp']],
+            best_scores_df[['Rank', 'Name', 'File Name', 'Score', 'Timestamp']],
             use_container_width=True,
             hide_index=True
         )
