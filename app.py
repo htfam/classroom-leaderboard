@@ -18,7 +18,7 @@ st.set_page_config(
 st.title("🏆 Data Competition Leaderboard")
 st.markdown("""
 Welcome to the class data competition! Submit your predictions to see how you rank against your peers.
-The evaluation metric is **F1 Score** (weighted for class imbalance). Higher is better!
+The evaluation metric is **F1 Score**. Higher is better!
 
 <u>Note: All **15,696 rows** matching the sample submission file must be submitted. Missing or unmatched predictions will be flagged as invalid.</u>
 """, unsafe_allow_html=True)
