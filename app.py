@@ -55,7 +55,7 @@ def fetch_leaderboard():
         df = pd.DataFrame(records)
         
         if df.empty:
-            return pd.DataFrame(columns=['Rank', 'Name', 'File Name', 'Score', 'Timestamp'])
+            return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp', 'File Name'])
 
         # Ensure expected columns exist (handles backward compatibility)
         if 'File Name' not in df.columns:
@@ -69,10 +69,12 @@ def fetch_leaderboard():
         # Sort by score descending (higher F1 score is better)
         df_sorted = df.sort_values(by="Score", ascending=False).reset_index(drop=True)
         df_sorted['Rank'] = df_sorted.index + 1
-        return df_sorted[['Rank', 'Name', 'File Name', 'Score', 'Timestamp']]
+        
+        # Display File Name at the far right
+        return df_sorted[['Rank', 'Name', 'Score', 'Timestamp', 'File Name']]
     except Exception as e:
         st.error(f"An error occurred while reading the leaderboard: {e}")
-        return pd.DataFrame(columns=['Rank', 'Name', 'File Name', 'Score', 'Timestamp'])
+        return pd.DataFrame(columns=['Rank', 'Name', 'Score', 'Timestamp', 'File Name'])
 
 
 def calculate_f1_score(submission_df, solution_df):
@@ -207,8 +209,8 @@ if submit_button:
                     score = calculate_f1_score(submission_df, solution_df)
                     timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
-                    # Record Name, File Name, Score, Timestamp
-                    new_rows.append([team_name.strip(), file.name, score, timestamp])
+                    # Order: Name | Score | Timestamp | File Name
+                    new_rows.append([team_name.strip(), score, timestamp, file.name])
                     submission_results.append((file.name, score, None))
                 except Exception as e:
                     submission_results.append((file.name, None, str(e)))
@@ -243,7 +245,7 @@ else:
     with tab1:
         st.markdown("This view shows every single submission made.")
         st.dataframe(
-            all_submissions_df,
+            all_submissions_df[['Rank', 'Name', 'Score', 'Timestamp', 'File Name']],
             use_container_width=True,
             hide_index=True
         )
@@ -255,7 +257,7 @@ else:
         best_scores_df['Rank'] = best_scores_df.index + 1
         
         st.dataframe(
-            best_scores_df[['Rank', 'Name', 'File Name', 'Score', 'Timestamp']],
+            best_scores_df[['Rank', 'Name', 'Score', 'Timestamp', 'File Name']],
             use_container_width=True,
             hide_index=True
         )
