@@ -157,9 +157,9 @@ with st.sidebar:
     try:
         with open("submission_template.csv", "rb") as f:
             st.download_button(
-                label="Download Sample Submission",
+                label="Download Submission Template",
                 data=f,
-                file_name="sample_submission.csv",
+                file_name="submission_template.csv",
                 mime="text/csv"
             )
     except FileNotFoundError:
