@@ -155,7 +155,7 @@ with st.sidebar:
     st.markdown("---")
     st.header("📚 Resources")
     try:
-        with open("submission.csv", "rb") as f:
+        with open("submission_template.csv", "rb") as f:
             st.download_button(
                 label="Download Sample Submission",
                 data=f,
@@ -163,7 +163,7 @@ with st.sidebar:
                 mime="text/csv"
             )
     except FileNotFoundError:
-        st.warning("`submission.csv` sample template not found in repository.")
+        st.warning("`submission_template.csv` sample template not found in repository.")
 
 
 # --- Submission Logic ---
