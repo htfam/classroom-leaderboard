@@ -20,7 +20,7 @@ st.markdown("""
 Welcome to the (optional) midterm data competition! Submit your predictions (good/bad) to see how you rank against your peers. First place gets 5 points added to their midterm exam grade, second places gets 3 points, and third place gets 1 point.
 The evaluation metric is **F1 Score**. Higher is better!
 
-<u>Note: All **15,696 rows** matching the sample submission file must be submitted. Missing or unmatched predictions will be flagged as invalid.</u>
+<u>Note: You can upload one or multiple CSV files at once to test different models. All **15,696 rows** matching the sample submission file must be submitted. Missing or unmatched predictions will be flagged as invalid.</u>
 """, unsafe_allow_html=True)
 
 # --- Direct Gspread Connection ---
@@ -144,13 +144,17 @@ except Exception as e:
 
 # --- Sidebar for Submission ---
 with st.sidebar:
-    st.header("📥 Make a Submission")
+    st.header("📥 Make Submissions")
     team_name = st.text_input("Enter your Name", key="team_name")
-    uploaded_file = st.file_uploader(
-        "Upload your submission CSV file",
+    
+    # Multiple files upload enabled
+    uploaded_files = st.file_uploader(
+        "Upload your submission CSV file(s)",
         type=["csv"],
-        help="The file must have two columns: 'unique_id' and 'prediction' containing all 15,696 rows."
+        accept_multiple_files=True,
+        help="The file(s) must have two columns: 'unique_id' and 'prediction' containing all 15,696 rows."
     )
+    
     submit_button = st.button("Submit Predictions")
     st.markdown("---")
     st.header("📚 Resources")
@@ -170,27 +174,39 @@ with st.sidebar:
 if submit_button:
     if not team_name.strip():
         st.sidebar.warning("Please enter your name.")
-    elif uploaded_file is None:
-        st.sidebar.warning("Please upload your submission file.")
+    elif not uploaded_files:
+        st.sidebar.warning("Please upload at least one submission file.")
     else:
-        try:
-            submission_df = pd.read_csv(uploaded_file)
+        new_rows = []
+        submission_results = []
 
-            with st.spinner("Scoring your submission..."):
-                score = calculate_f1_score(submission_df, solution_df)
+        with st.spinner(f"Scoring {len(uploaded_files)} file(s)..."):
+            for file in uploaded_files:
+                try:
+                    submission_df = pd.read_csv(file)
+                    score = calculate_f1_score(submission_df, solution_df)
+                    timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
-            timestamp = datetime.now(pytz.timezone("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
-            new_entry = pd.DataFrame([[team_name.strip(), score, timestamp]], columns=["Name", "Score", "Timestamp"])
-            
-            # Append the new row to Google Sheets via gspread
-            worksheet.append_rows(new_entry.values.tolist(), value_input_option='USER_ENTERED')
+                    new_rows.append([team_name.strip(), score, timestamp])
+                    submission_results.append((file.name, score, None))
+                except Exception as e:
+                    submission_results.append((file.name, None, str(e)))
 
-            st.sidebar.success(f"🎉 Submission successful!\n\nYour F1 Score: **{score:.5f}**")
-            st.cache_data.clear() # Clear cache to display update immediately
-        except ValueError as ve:
-            st.sidebar.error(f"Validation Error: {ve}")
-        except Exception as e:
-            st.sidebar.error(f"An error occurred: {e}")
+        # Append all valid submissions in one batch request to Google Sheets
+        if new_rows:
+            try:
+                worksheet.append_rows(new_rows, value_input_option='USER_ENTERED')
+                st.cache_data.clear() # Refresh leaderboard cache immediately
+            except Exception as e:
+                st.sidebar.error(f"Failed to update Google Sheets: {e}")
+
+        # Display results for each file in the sidebar
+        st.sidebar.markdown("### Submission Results")
+        for filename, score, err in submission_results:
+            if score is not None:
+                st.sidebar.success(f"🎉 **{filename}**\n\nYour F1 Score: **{score:.5f}**")
+            else:
+                st.sidebar.error(f"❌ **{filename}**\n\nValidation Error: {err}")
 
 
 # --- Display Leaderboard ---
