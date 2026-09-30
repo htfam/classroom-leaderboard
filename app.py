@@ -17,7 +17,7 @@ st.set_page_config(
 # --- App Title and Description ---
 st.title("🏆 Data Competition Leaderboard")
 st.markdown("""
-Welcome to the class data competition! Submit your predictions to see how you rank against your peers.
+Welcome to the (optional) midterm data competition! Submit your predictions to see how you rank against your peers. First place gets 5 points added to their midterm exam grade, second places gets 3 points, and third place gets 1 point.
 The evaluation metric is **F1 Score**. Higher is better!
 
 <u>Note: All **15,696 rows** matching the sample submission file must be submitted. Missing or unmatched predictions will be flagged as invalid.</u>
